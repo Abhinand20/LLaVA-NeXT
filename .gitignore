@@ -32,7 +32,6 @@ ckpts*
 
 .ipynb_checkpoints
 chunyl_scripts
-*.ipynb
 
 # DevContainer
 !.devcontainer/*
