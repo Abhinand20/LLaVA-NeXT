@@ -87,7 +87,7 @@ def get_test_answer(data, model, image_processor, tokenizer, max_len, device):
     elif len(images) == 1:
         promptImg = get_si_prompt(titles)
     else:
-        raise NotImplementedError
+        return ""
 
     promptTxt = ""
     if len(texts) == 2:
@@ -104,7 +104,6 @@ def get_test_answer(data, model, image_processor, tokenizer, max_len, device):
     conv.append_message(conv.roles[0], prompt)
     conv.append_message(conv.roles[1], None)
     prompt_question = conv.get_prompt()
-    print(prompt_question)
 
     input_ids = tokenizer_image_token(prompt_question, tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt").unsqueeze(0).to(device)
     image_sizes = [image.size for image in images]
@@ -138,6 +137,8 @@ def main():
     for id,d in tqdm(retrieved_data.items()):
         try:
             ans = get_test_answer(d, model, image_processor, tokenizer, max_length, device)
+            if ans == "":
+                continue
             f.write(f"{id}\t{ans}\n")
         except Exception as e:
             print(e)
