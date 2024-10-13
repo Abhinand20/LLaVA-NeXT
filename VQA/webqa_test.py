@@ -1,4 +1,5 @@
 
+import os
 from tqdm import tqdm
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path, process_images, tokenizer_image_token
@@ -125,20 +126,42 @@ def read_image(image_id):
         imgid, img_base64 = fp.readline().strip().split('\t')
     assert int(image_id) == int(imgid), f'{image_id} {imgid}'
     im = Image.open(BytesIO(base64.b64decode(img_base64)))
+    if im.mode != 'RGB':
+        im = im.convert('RGB')  # Convert to RGB if not already
     return im
+
+def get_remaining_ids(ans_dir):
+    if not os.path.exists(ans_dir):
+        return set()
+    
+    with open(ans_dir, 'r') as f:
+        ans_ids = set()
+        for line in f:
+            ans_ids.add(line.split('\t')[0])
+
+    remaining_ids = set()
+    for id,d in test_data.items():
+        if id not in ans_ids:
+            remaining_ids.add(id)
+    return remaining_ids
+
 
 ## Load model
 # pretrained = "lmms-lab/llava-onevision-qwen2-0.5b-ov"
 def main():
     out_file = "/mnt/disks/data/webqa/ans_test_imgs_base.txt"
+    remaining_ids = get_remaining_ids(out_file)
     tokenizer, model, image_processor, max_length = load_pretrained_model(pretrained, None, model_name, device_map=device_map, load_8bit=True, **llava_model_args)
     model.eval()
     f = open(out_file, 'a')
     for id,d in tqdm(retrieved_data.items()):
+        if len(remaining_ids) > 0 and id not in remaining_ids:
+            continue
         try:
             ans = get_test_answer(d, model, image_processor, tokenizer, max_length, device)
             if ans == "":
                 continue
+            print(f"Q: {d['Q']}\nA: {ans}")
             f.write(f"{id}\t{ans}\n")
         except Exception as e:
             print(e)
