@@ -146,9 +146,10 @@ def get_num_ptbs(id, d, split):
         
 def main():
     args = argparse.ArgumentParser()
-    args.add_argument("split", type=str, choices=["train", "val", "full"], default="val")
-    args.add_argument("qcate", type=str, choices=["color", "shape", "yesno", "number", "all"], default="color")
-    args.parse_args()
+    args.add_argument("split", type=str, nargs='?', choices=["train", "val", "full"], default="val", help="Choose the data split")
+    args.add_argument("qcate", type=str, nargs='?', choices=["color", "shape", "yesno", "number", "all"], default="color", help="Choose the question category")
+    args = args.parse_args()
+    print(f"Generating samples for split: {args.split} and category: {args.qcate}")
     out_file_name = f"llavanext_webqa_ptb_{args.split}_{args.qcate}.json"
     out_file = osp.join(disk_root, out_file_name)
     data = read_data(args.split, args.qcate)
@@ -158,7 +159,7 @@ def main():
     f = open(out_file, 'a')
     results = {} # We accumulate results in memory to keep things simple
     count = 0
-    for id,d in data.items():
+    for id,d in tqdm(data.items()):
         if len(remaining_ids) > 0 and id not in remaining_ids:
             continue
         try:
