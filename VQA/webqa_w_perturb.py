@@ -4,12 +4,13 @@ For a given category, generate answers on original training image + perturbed im
     <guid>: {"A": <ans>, "llava_A": <ans>, "llava_A_perturbed": [<ans1> , <ans2> ...]}
 }
 """
+import jsonlines
 import argparse
 import os
 from tqdm import tqdm
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path, process_images, tokenizer_image_token
-from webqa_test import get_multihop_image_prompt, get_multihop_text_prompt, get_si_prompt, get_single_text_prompt, get_ques_prompt, read_image, get_remaining_ids
+from webqa_test import get_multihop_image_prompt, get_multihop_text_prompt, get_si_prompt, get_single_text_prompt, get_ques_prompt, read_image
 from llava.constants import IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN, IGNORE_INDEX
 from llava.conversation import conv_templates, SeparatorStyle
 from PIL import Image
@@ -79,10 +80,11 @@ def read_data(split, qcate):
     for id,d in train_data.items():
         if d['Qcate'] == qcate:
             cat_train_data[id] = d
-    return train_data if split == 'train' else val_data
+    return cat_train_data if split == 'train' else cat_val_data
 
-def get_ans(qid, data, model, image_processor, tokenizer, device, sample_idx, use_ptb_img = False):
+def get_ans(split, qid, data, model, image_processor, tokenizer, device, sample_idx=0, use_ptb_img = False):
     ques = data['Q']
+    ptb_dir = val_ptb_data_dir if split == 'val' else train_ptb_data_dir
     images = []
     titles = []
     texts = []
@@ -90,7 +92,7 @@ def get_ans(qid, data, model, image_processor, tokenizer, device, sample_idx, us
         image_id = img['image_id']
         # We only have the first perturbed image which should be enough to change the answer
         if use_ptb_img and len(images) == 0:
-            images.append(read_perturbed_img(str(image_id), qid, str(sample_idx)))
+            images.append(read_perturbed_img(str(image_id), qid, str(sample_idx), ptb_dir))
         else:
             images.append(read_image(image_id))
         titles.append(img['caption'])
@@ -135,48 +137,56 @@ def get_ans(qid, data, model, image_processor, tokenizer, device, sample_idx, us
     text_outputs = tokenizer.batch_decode(cont, skip_special_tokens=True)
     return text_outputs[0]
 
-def get_num_ptbs(id, d, split):
+def get_num_ptbs(id, split):
     ptb_files = os.listdir(train_ptb_data_dir)
     if split == 'val':
         ptb_files = os.listdir(val_ptb_data_dir)
     elif split == 'full':
         ptb_files += os.listdir(val_ptb_data_dir)
 
-    return len([i for i in ptb_files if i.startswith(f"{id}_{d}")])
+    return len([f for f in ptb_files if f"{id}" in f])
         
+def get_done_ids(out_file):
+    if not osp.exists(out_file):
+        return set()
+    keys = []
+    with jsonlines.open(out_file, 'r') as f:
+        for obj in f:
+            keys.append(list(obj.keys())[0])
+    return set(keys)
+
 def main():
     args = argparse.ArgumentParser()
     args.add_argument("split", type=str, nargs='?', choices=["train", "val", "full"], default="val", help="Choose the data split")
     args.add_argument("qcate", type=str, nargs='?', choices=["color", "shape", "yesno", "number", "all"], default="color", help="Choose the question category")
     args = args.parse_args()
-    print(f"Generating samples for split: {args.split} and category: {args.qcate}")
-    out_file_name = f"llavanext_webqa_ptb_{args.split}_{args.qcate}.json"
+    print(f"Generating answers for split: {args.split} and category: {args.qcate}")
+    out_file_name = f"llavanext_webqa_ptb_{args.split}_{args.qcate}.jsonl"
     out_file = osp.join(disk_root, out_file_name)
     data = read_data(args.split, args.qcate)
-    remaining_ids = get_remaining_ids(out_file)
+    print("Num samples = ", len(data))
+    done_ids = get_done_ids(out_file)
     tokenizer, model, image_processor, max_length = load_pretrained_model(pretrained, None, model_name, device_map=device_map, load_8bit=True, **llava_model_args)
     model.eval()
-    f = open(out_file, 'a')
-    results = {} # We accumulate results in memory to keep things simple
-    count = 0
+    f = jsonlines.open(out_file, mode='a')
     for id,d in tqdm(data.items()):
-        if len(remaining_ids) > 0 and id not in remaining_ids:
+        if id in done_ids:
+            print(f"Skipping {id} since its already one.")
             continue
         try:
-            count += 1
-            if count == 5:
-                break
-            ans_orig = get_ans(id, d, model, image_processor, tokenizer, max_length, device, use_ptb_img=False)
+            ans_orig = get_ans(args.split, id, d, model, image_processor, tokenizer, device, use_ptb_img=False)
             # List of answers for each ptb
-            num_ptbs = get_num_ptbs(id, d, args.split)
+            num_ptbs = get_num_ptbs(id, args.split)
+            print(num_ptbs)
             ans_ptb = []
             for i in range(num_ptbs):
-                ans_ptb.append(get_ans(id, d, model, image_processor, tokenizer, max_length, device, sample_idx=i, use_ptb_img=True))
+                ans_ptb.append(get_ans(args.split, id, d, model, image_processor, tokenizer, device, sample_idx=i, use_ptb_img=True))
+            results = {}
             results[id] = {}
             results[id]['A'] = d['A']
             results[id]['llava_A'] = ans_orig
             results[id]['llava_A_perturbed'] = ans_ptb
-            json.dump(results, f)
+            f.write(results)
         except Exception as e:
             print(e)
             continue
