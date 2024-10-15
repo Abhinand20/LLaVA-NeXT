@@ -177,7 +177,6 @@ def main():
             ans_orig = get_ans(args.split, id, d, model, image_processor, tokenizer, device, use_ptb_img=False)
             # List of answers for each ptb
             num_ptbs = get_num_ptbs(id, args.split)
-            print(num_ptbs)
             ans_ptb = []
             for i in range(num_ptbs):
                 ans_ptb.append(get_ans(args.split, id, d, model, image_processor, tokenizer, device, sample_idx=i, use_ptb_img=True))
